@@ -210,6 +210,14 @@ async function apiFootballGet(endpoint, params = {}) {
     throw err;
   }
 
+  const hasApiErrors = payload && payload.errors && typeof payload.errors === "object" && Object.keys(payload.errors).length > 0;
+  if (hasApiErrors) {
+    const firstError = Object.values(payload.errors).find(Boolean);
+    const err = new Error(String(firstError || "API-Football retornou erro"));
+    err.statusCode = 502;
+    throw err;
+  }
+
   return payload;
 }
 
@@ -334,7 +342,7 @@ app.get("/api/teams", async (req, res) => {
     if (name) map.set(name, (map.get(name) || 0) + 1);
   }
   const teams = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  res.json({ count: teams.length, teams, source: resolveDataMode() });
+  res.json({ count: teams.length, teams, source: resolveEffectiveDataMode() });
 });
 
 app.get("/api/positions", async (req, res) => {
@@ -344,7 +352,7 @@ app.get("/api/positions", async (req, res) => {
     if (name) map.set(name, (map.get(name) || 0) + 1);
   }
   const positions = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  res.json({ count: positions.length, positions, source: resolveDataMode() });
+  res.json({ count: positions.length, positions, source: resolveEffectiveDataMode() });
 });
 
 app.get("/api/rankings", async (req, res) => {
@@ -392,14 +400,14 @@ app.get("/api/players/:id", async (req, res) => {
     desarmes: percentile(metrics.desarmes, samePos.map((m) => m.desarmes)),
     defesas: percentile(metrics.defesas, samePos.map((m) => m.defesas)),
   };
-  res.json({ player, metrics, percentis, context: { comparacao: `Percentis dentro da posição (${player.posicao})`, amostra: samePos.length }, source: resolveDataMode() });
+  res.json({ player, metrics, percentis, context: { comparacao: `Percentis dentro da posição (${player.posicao})`, amostra: samePos.length }, source: resolveEffectiveDataMode() });
 });
 
 app.get("/api/coaches", async (req, res) => {
   const q = normalize(req.query.q);
   const coaches = await getCoaches(req.query);
   const filtered = q ? coaches.filter((c) => normalize(c.nome).includes(q)) : coaches;
-  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" }, source: resolveDataMode() });
+  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" }, source: resolveEffectiveDataMode() });
 });
 
 app.get("/api/coaches/:id", async (req, res) => {
@@ -408,7 +416,7 @@ app.get("/api/coaches/:id", async (req, res) => {
   if (!coach) return res.status(404).json({ error: "Treinador não encontrado" });
   const impact_history = coachImpactHistory(id);
   const last = impact_history[impact_history.length - 1];
-  res.json({ coach, impact: { jogos: last.jogos, vitorias: last.vitorias, empates: last.empates, derrotas: last.derrotas, aproveitamento_pct: last.aproveitamento_pct }, impact_history, source: resolveDataMode() });
+  res.json({ coach, impact: { jogos: last.jogos, vitorias: last.vitorias, empates: last.empates, derrotas: last.derrotas, aproveitamento_pct: last.aproveitamento_pct }, impact_history, source: resolveEffectiveDataMode() });
 });
 
 app.get("/api/coaches.csv", async (req, res) => {

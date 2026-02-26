@@ -348,7 +348,13 @@ export default function App() {
 
   useEffect(() => {
     apiGet("/health")
-      .then((data) => setHealth(data))
+      .then((data) => {
+        setHealth(data);
+        const defaultLeague = data?.api_football?.default_league;
+        const defaultSeason = data?.api_football?.default_season;
+        if (defaultLeague) setFLeague(String(defaultLeague));
+        if (defaultSeason) setFSeason(String(defaultSeason));
+      })
       .catch(() => setError(`Não consegui conectar no backend. Base URL: ${API_BASE_URL}`));
   }, []);
 
@@ -363,7 +369,7 @@ export default function App() {
   const [fTime, setFTime] = useState("");
   const [q, setQ] = useState("");
   const [fLeague, setFLeague] = useState("71");
-  const [fSeason, setFSeason] = useState(String(new Date().getFullYear()));
+  const [fSeason, setFSeason] = useState("2024");
   const [fPage, setFPage] = useState("1");
 
   const [selectedId, setSelectedId] = useState(initialUrl.p);
@@ -396,14 +402,14 @@ export default function App() {
   useEffect(() => {
     if (tab !== "players") return;
 
-    apiGet("/api/teams")
+    apiGet(`/api/teams${queryString}`)
       .then((data) => setTeams(data.teams || []))
       .catch(() => setError("Falha ao buscar /api/teams"));
 
-    apiGet("/api/positions")
+    apiGet(`/api/positions${queryString}`)
       .then((data) => setPositions(data.positions || []))
       .catch(() => setError("Falha ao buscar /api/positions"));
-  }, [tab]);
+  }, [tab, queryString]);
 
   useEffect(() => {
     if (tab !== "players") return;
@@ -685,7 +691,7 @@ export default function App() {
                         <Input value={fPage} onChange={(e) => setFPage(e.target.value)} style={{ minWidth: 80 }} />
                       </label>
 
-                      <Button onClick={() => { setQ(""); setFPosicao(""); setFTime(""); setFLeague("71"); setFSeason(String(new Date().getFullYear())); setFPage("1"); }}>
+                      <Button onClick={() => { setQ(""); setFPosicao(""); setFTime(""); setFLeague("71"); setFSeason("2024"); setFPage("1"); }}>
                         Limpar
                       </Button>
 
