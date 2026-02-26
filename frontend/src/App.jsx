@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet, API_BASE_URL } from "./api";
 
 const COLORS = {
-  bg: "#0f1115",
-  panel: "#151923",
-  panel2: "#111521",
+  bg: "radial-gradient(circle at 10% 0%, #1a2440 0%, #0f1115 45%)",
+  panel: "rgba(21, 25, 35, 0.9)",
+  panel2: "rgba(17, 21, 33, 0.92)",
   border: "#2a3242",
   text: "#e8ecf3",
   muted: "#a6b0c3",
@@ -362,6 +362,9 @@ export default function App() {
   const [fPosicao, setFPosicao] = useState("");
   const [fTime, setFTime] = useState("");
   const [q, setQ] = useState("");
+  const [fLeague, setFLeague] = useState("71");
+  const [fSeason, setFSeason] = useState(String(new Date().getFullYear()));
+  const [fPage, setFPage] = useState("1");
 
   const [selectedId, setSelectedId] = useState(initialUrl.p);
   const [compareId, setCompareId] = useState(initialUrl.c ? String(initialUrl.c) : "");
@@ -406,21 +409,29 @@ export default function App() {
     if (tab !== "players") return;
 
     setRankLoading(true);
-    const qs = fPosicao ? `?posicao=${encodeURIComponent(fPosicao)}` : "";
+    const params = new URLSearchParams();
+    if (fPosicao) params.set("posicao", fPosicao);
+    if (fLeague) params.set("league", fLeague);
+    if (fSeason) params.set("season", fSeason);
+    if (fPage) params.set("page", fPage);
+    const qs = params.toString() ? `?${params.toString()}` : "";
     apiGet(`/api/rankings${qs}`)
       .then((data) => setRankings(data.rankings || null))
       .catch(() => setError("Falha ao buscar /api/rankings"))
       .finally(() => setRankLoading(false));
-  }, [tab, fPosicao]);
+  }, [tab, fPosicao, fLeague, fSeason, fPage]);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (fPosicao) params.set("posicao", fPosicao);
     if (fTime) params.set("time", fTime);
     if (q.trim()) params.set("q", q.trim());
+    if (fLeague) params.set("league", fLeague);
+    if (fSeason) params.set("season", fSeason);
+    if (fPage) params.set("page", fPage);
     const qs = params.toString();
     return qs ? `?${qs}` : "";
-  }, [fPosicao, fTime, q]);
+  }, [fPosicao, fTime, q, fLeague, fSeason, fPage]);
 
   useEffect(() => {
     if (tab !== "players") return;
@@ -511,7 +522,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "Arial, sans-serif", padding: 24 }}>
+    <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "Inter, Arial, sans-serif", padding: 24 }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 16, justifyContent: "space-between", flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 16 }}>
@@ -589,9 +600,13 @@ export default function App() {
         {!error && !health && <p style={{ color: COLORS.muted, marginTop: 16 }}>Carregando status do backend...</p>}
 
         {health && (
-          <div style={{ marginTop: 12, padding: 12, border: `1px solid ${COLORS.border}`, borderRadius: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: COLORS.panel }}>
+          <div style={{ marginTop: 12, padding: 12, border: `1px solid ${COLORS.border}`, borderRadius: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: COLORS.panel, boxShadow: "0 8px 24px rgba(0,0,0,0.25)" }}>
             <div>
               <b>Backend</b> ✅ <span style={{ color: COLORS.muted }}>({health.service})</span>
+              <div style={{ marginTop: 6, fontSize: 12, color: COLORS.muted }}>
+                Fonte de dados: <b style={{ color: COLORS.text }}>{health.data_mode || "local"}</b>
+                {health?.api_football?.mode_reason ? ` • ${health.api_football.mode_reason}` : ""}
+              </div>
             </div>
             <div style={{ color: COLORS.muted }}>{new Date(health.time).toLocaleString()}</div>
           </div>
@@ -655,7 +670,22 @@ export default function App() {
                         </Select>
                       </label>
 
-                      <Button onClick={() => { setQ(""); setFPosicao(""); setFTime(""); }}>
+                      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: COLORS.muted }}>Liga:</span>
+                        <Input value={fLeague} onChange={(e) => setFLeague(e.target.value)} style={{ minWidth: 90 }} />
+                      </label>
+
+                      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: COLORS.muted }}>Temporada:</span>
+                        <Input value={fSeason} onChange={(e) => setFSeason(e.target.value)} style={{ minWidth: 110 }} />
+                      </label>
+
+                      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: COLORS.muted }}>Página:</span>
+                        <Input value={fPage} onChange={(e) => setFPage(e.target.value)} style={{ minWidth: 80 }} />
+                      </label>
+
+                      <Button onClick={() => { setQ(""); setFPosicao(""); setFTime(""); setFLeague("71"); setFSeason(String(new Date().getFullYear())); setFPage("1"); }}>
                         Limpar
                       </Button>
 

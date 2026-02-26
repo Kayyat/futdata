@@ -7,6 +7,15 @@ const path = require("path");
 
 const app = express();
 
+const API_FOOTBALL_BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-sports.io";
+const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY || "";
+const rawUseLive = process.env.API_FOOTBALL_USE_LIVE;
+const API_FOOTBALL_USE_LIVE = rawUseLive
+  ? String(rawUseLive).toLowerCase() === "true"
+  : Boolean(API_FOOTBALL_KEY);
+const API_FOOTBALL_DEFAULT_LEAGUE = process.env.API_FOOTBALL_DEFAULT_LEAGUE || "71";
+const API_FOOTBALL_DEFAULT_SEASON = process.env.API_FOOTBALL_DEFAULT_SEASON || String(new Date().getFullYear());
+
 function parseOrigins(value) {
   if (!value) return [];
   return value
@@ -45,11 +54,11 @@ function loadJsonArray(filePath, label) {
   }
 }
 
-function getPlayers() {
+function getPlayersLocal() {
   return loadJsonArray(PLAYERS_PATH, "players.json");
 }
 
-function getCoaches() {
+function getCoachesLocal() {
   return loadJsonArray(COACHES_PATH, "coaches.json");
 }
 
@@ -147,6 +156,108 @@ function parsePositiveInt(value, fieldLabel) {
   return n;
 }
 
+function parseOptionalPositiveInt(value, fieldLabel, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return parsePositiveInt(value, fieldLabel);
+}
+
+function resolveDataMode() {
+  return API_FOOTBALL_USE_LIVE && Boolean(API_FOOTBALL_KEY) ? "api-football" : "local";
+}
+
+function resolveDataModeReason() {
+  if (!API_FOOTBALL_USE_LIVE) return "API_FOOTBALL_USE_LIVE=false";
+  if (!API_FOOTBALL_KEY) return "API_FOOTBALL_KEY ausente";
+  return "API-Football habilitada";
+}
+
+async function apiFootballGet(endpoint, params = {}) {
+  const url = new URL(`${API_FOOTBALL_BASE_URL}${endpoint}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "x-apisports-key": API_FOOTBALL_KEY,
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const err = new Error(payload?.errors?.message || `API-Football erro HTTP ${response.status}`);
+    err.statusCode = 502;
+    throw err;
+  }
+
+  return payload;
+}
+
+function mapApiFootballPlayer(item) {
+  const player = item?.player || {};
+  const stats = Array.isArray(item?.statistics) ? item.statistics[0] : null;
+  const teamName = stats?.team?.name || "";
+  const position = stats?.games?.position || "";
+
+  return {
+    id: player.id,
+    nome: player.name || "",
+    posicao: position || "",
+    time: teamName || "",
+    idade: player.age || null,
+    pe: player.birth?.place || "",
+  };
+}
+
+function mapApiFootballCoach(item) {
+  const teamName = Array.isArray(item?.career) && item.career.length > 0 ? item.career[0]?.team?.name : "";
+
+  return {
+    id: item.id,
+    nome: item.name || "",
+    nacionalidade: item.nationality || "",
+    idade: item.age || null,
+    ultimo_clube: teamName || "",
+    perfil: "Perfil vindo da API-Football",
+  };
+}
+
+async function getPlayers(query) {
+  if (resolveDataMode() !== "api-football") {
+    return getPlayersLocal();
+  }
+
+  const league = parseOptionalPositiveInt(query.league, "league", Number(API_FOOTBALL_DEFAULT_LEAGUE));
+  const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
+  const page = parseOptionalPositiveInt(query.page, "page", 1);
+
+  const payload = await apiFootballGet("/players", {
+    league,
+    season,
+    search: query.q || undefined,
+    page,
+  });
+
+  const items = Array.isArray(payload?.response) ? payload.response : [];
+  return items.map(mapApiFootballPlayer);
+}
+
+async function getCoaches(query) {
+  if (resolveDataMode() !== "api-football") {
+    return getCoachesLocal();
+  }
+
+  const payload = await apiFootballGet("/coachs", {
+    search: query.q || undefined,
+  });
+
+  const items = Array.isArray(payload?.response) ? payload.response : [];
+  return items.map(mapApiFootballCoach);
+}
+
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
@@ -155,41 +266,58 @@ app.get("/health", (req, res) => {
     dataset_players: "backend/data/players.json",
     dataset_coaches: "backend/data/coaches.json",
     cors_allowed: allowedOrigins,
+    data_mode: resolveDataMode(),
+    api_football: {
+      enabled: API_FOOTBALL_USE_LIVE,
+      has_key: Boolean(API_FOOTBALL_KEY),
+      base_url: API_FOOTBALL_BASE_URL,
+      default_league: API_FOOTBALL_DEFAULT_LEAGUE,
+      default_season: API_FOOTBALL_DEFAULT_SEASON,
+      mode_reason: resolveDataModeReason(),
+    },
   });
 });
 
-app.get("/api/players", (req, res) => {
-  const players = getPlayers();
+app.get("/api/players", async (req, res) => {
+  const players = await getPlayers(req.query);
   const filtered = applyFilters(players, req.query);
   res.json({
     count: filtered.length,
-    filters: { posicao: req.query.posicao || "", time: req.query.time || "", q: req.query.q || "" },
+    filters: {
+      posicao: req.query.posicao || "",
+      time: req.query.time || "",
+      q: req.query.q || "",
+      league: req.query.league || API_FOOTBALL_DEFAULT_LEAGUE,
+      season: req.query.season || API_FOOTBALL_DEFAULT_SEASON,
+      page: req.query.page || "1",
+    },
+    source: resolveDataMode(),
     players: filtered,
   });
 });
 
-app.get("/api/teams", (req, res) => {
+app.get("/api/teams", async (req, res) => {
   const map = new Map();
-  for (const p of getPlayers()) {
+  for (const p of await getPlayers(req.query)) {
     const name = String(p.time || "").trim();
     if (name) map.set(name, (map.get(name) || 0) + 1);
   }
   const teams = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  res.json({ count: teams.length, teams });
+  res.json({ count: teams.length, teams, source: resolveDataMode() });
 });
 
-app.get("/api/positions", (req, res) => {
+app.get("/api/positions", async (req, res) => {
   const map = new Map();
-  for (const p of getPlayers()) {
+  for (const p of await getPlayers(req.query)) {
     const name = String(p.posicao || "").trim();
     if (name) map.set(name, (map.get(name) || 0) + 1);
   }
   const positions = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  res.json({ count: positions.length, positions });
+  res.json({ count: positions.length, positions, source: resolveDataMode() });
 });
 
-app.get("/api/rankings", (req, res) => {
-  const players = getPlayers();
+app.get("/api/rankings", async (req, res) => {
+  const players = await getPlayers(req.query);
   const pos = normalize(req.query.posicao);
   const pool = pos ? players.filter((p) => normalize(p.posicao) === pos) : players;
   res.json({
@@ -203,11 +331,12 @@ app.get("/api/rankings", (req, res) => {
       defesas: topByMetric(pool, "defesas", 5),
     },
     count_pool: pool.length,
+    source: resolveDataMode(),
   });
 });
 
-app.get("/api/players.csv", (req, res) => {
-  const filtered = applyFilters(getPlayers(), req.query);
+app.get("/api/players.csv", async (req, res) => {
+  const filtered = applyFilters(await getPlayers(req.query), req.query);
   const header = ["id", "nome", "posicao", "time", "idade", "pe"];
   const rows = filtered.map((p) => [p.id, p.nome, p.posicao, p.time, p.idade, p.pe]);
   const csv = [header.join(","), ...rows.map((r) => r.map(csvEscape).join(","))].join("\n");
@@ -216,9 +345,9 @@ app.get("/api/players.csv", (req, res) => {
   res.send("\uFEFF" + csv);
 });
 
-app.get("/api/players/:id", (req, res) => {
+app.get("/api/players/:id", async (req, res) => {
   const id = parsePositiveInt(req.params.id, "ID do jogador");
-  const players = getPlayers();
+  const players = await getPlayers(req.query);
   const player = players.find((p) => p.id === id);
   if (!player) return res.status(404).json({ error: "Player não encontrado" });
   const metrics = mockMetrics(player);
@@ -232,28 +361,28 @@ app.get("/api/players/:id", (req, res) => {
     desarmes: percentile(metrics.desarmes, samePos.map((m) => m.desarmes)),
     defesas: percentile(metrics.defesas, samePos.map((m) => m.defesas)),
   };
-  res.json({ player, metrics, percentis, context: { comparacao: `Percentis dentro da posição (${player.posicao})`, amostra: samePos.length } });
+  res.json({ player, metrics, percentis, context: { comparacao: `Percentis dentro da posição (${player.posicao})`, amostra: samePos.length }, source: resolveDataMode() });
 });
 
-app.get("/api/coaches", (req, res) => {
+app.get("/api/coaches", async (req, res) => {
   const q = normalize(req.query.q);
-  const coaches = getCoaches();
+  const coaches = await getCoaches(req.query);
   const filtered = q ? coaches.filter((c) => normalize(c.nome).includes(q)) : coaches;
-  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" } });
+  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" }, source: resolveDataMode() });
 });
 
-app.get("/api/coaches/:id", (req, res) => {
+app.get("/api/coaches/:id", async (req, res) => {
   const id = parsePositiveInt(req.params.id, "ID do treinador");
-  const coach = getCoaches().find((c) => c.id === id);
+  const coach = (await getCoaches(req.query)).find((c) => c.id === id);
   if (!coach) return res.status(404).json({ error: "Treinador não encontrado" });
   const impact_history = coachImpactHistory(id);
   const last = impact_history[impact_history.length - 1];
-  res.json({ coach, impact: { jogos: last.jogos, vitorias: last.vitorias, empates: last.empates, derrotas: last.derrotas, aproveitamento_pct: last.aproveitamento_pct }, impact_history });
+  res.json({ coach, impact: { jogos: last.jogos, vitorias: last.vitorias, empates: last.empates, derrotas: last.derrotas, aproveitamento_pct: last.aproveitamento_pct }, impact_history, source: resolveDataMode() });
 });
 
-app.get("/api/coaches.csv", (req, res) => {
+app.get("/api/coaches.csv", async (req, res) => {
   const q = normalize(req.query.q);
-  const coaches = getCoaches();
+  const coaches = await getCoaches(req.query);
   const filtered = q ? coaches.filter((c) => normalize(c.nome).includes(q)) : coaches;
   const header = ["id", "nome", "nacionalidade", "idade", "ultimo_clube", "perfil"];
   const rows = filtered.map((c) => [c.id, c.nome, c.nacionalidade, c.idade, c.ultimo_clube, c.perfil]);
@@ -273,4 +402,4 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || "Erro interno" });
 });
 
-module.exports = { app, allowedOrigins };
+module.exports = { app, allowedOrigins, resolveDataMode };

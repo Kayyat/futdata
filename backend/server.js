@@ -1,8 +1,9 @@
-const { app, allowedOrigins } = require("./app");
+const { app, allowedOrigins, resolveDataMode } = require("./app");
 
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`✅ Backend rodando em http://localhost:${PORT}`);
   console.log(`🔒 CORS permitido: ${allowedOrigins.join(", ") || "(nenhum)"}`);
+  console.log(`📡 Fonte de dados ativa: ${resolveDataMode()}`);
 });

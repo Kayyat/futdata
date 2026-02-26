@@ -67,3 +67,41 @@ App disponível em `http://localhost:5173`.
 
 - O projeto ainda utiliza dados locais em `backend/data/*.json`.
 - Métricas de jogadores e impacto de treinadores são mockadas/determinísticas, úteis para MVP e testes de fluxo.
+
+
+## Consumindo dados da API-Football
+
+O backend já está preparado para consumir dados da `api-football.com` (API-Sports) nos endpoints existentes de jogadores e treinadores.
+
+### Configuração
+
+No `backend/.env` configure:
+
+```env
+API_FOOTBALL_USE_LIVE=true
+API_FOOTBALL_KEY=sua_chave_aqui
+API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
+API_FOOTBALL_DEFAULT_LEAGUE=71
+API_FOOTBALL_DEFAULT_SEASON=2024
+```
+
+### Como funciona
+
+- Com `API_FOOTBALL_USE_LIVE=true` e chave válida, o backend usa dados remotos.
+- Se desativado (ou sem chave), o backend mantém fallback para os JSONs locais.
+- O endpoint `GET /health` retorna `data_mode` (`api-football` ou `local`).
+
+### Parâmetros úteis
+
+Para `GET /api/players` (e endpoints derivados como rankings/teams/positions):
+
+- `league` (opcional)
+- `season` (opcional)
+- `page` (opcional)
+- `q` (opcional, busca por nome)
+
+Exemplo:
+
+```bash
+curl "http://localhost:3001/api/players?league=71&season=2024&page=1&q=pedro"
+```
