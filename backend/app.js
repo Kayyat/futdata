@@ -250,6 +250,47 @@ function mapApiFootballCoach(item) {
   };
 }
 
+
+function shouldFallbackToLocal(err) {
+  const message = String(err?.message || "").toLowerCase();
+  return message.includes("fetch failed") || message.includes("enetunreach") || message.includes("econnreset") || message.includes("etimedout");
+}
+
+async function getTeams(query) {
+  const localTeams = () => {
+    const map = new Map();
+    for (const p of getPlayersLocal()) {
+      const name = String(p.time || "").trim();
+      if (name) map.set(name, (map.get(name) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
+  };
+
+  if (resolveDataMode() !== "api-football") {
+    return localTeams();
+  }
+
+  const league = parseOptionalPositiveInt(query.league, "league", Number(API_FOOTBALL_DEFAULT_LEAGUE));
+  const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
+
+  try {
+    const payload = await apiFootballGet("/teams", { league, season });
+    setLastApiFootballError("");
+    const items = Array.isArray(payload?.response) ? payload.response : [];
+    return items
+      .map((item) => ({ name: item?.team?.name || "", count: 1 }))
+      .filter((item) => item.name);
+  } catch (err) {
+    if (shouldFallbackToLocal(err)) {
+      setLastApiFootballError(err.message || "erro desconhecido");
+      console.warn("⚠️ Falha de rede ao buscar teams na API-Football; usando fallback local.", err.message);
+      return localTeams();
+    }
+
+    throw err;
+  }
+}
+
 async function getPlayers(query) {
   if (resolveDataMode() !== "api-football") {
     return getPlayersLocal();
@@ -271,9 +312,13 @@ async function getPlayers(query) {
     const items = Array.isArray(payload?.response) ? payload.response : [];
     return items.map(mapApiFootballPlayer);
   } catch (err) {
-    setLastApiFootballError(err.message || "erro desconhecido");
-    console.warn("⚠️ Falha ao buscar players na API-Football; usando fallback local.", err.message);
-    return getPlayersLocal();
+    if (shouldFallbackToLocal(err)) {
+      setLastApiFootballError(err.message || "erro desconhecido");
+      console.warn("⚠️ Falha de rede ao buscar players na API-Football; usando fallback local.", err.message);
+      return getPlayersLocal();
+    }
+
+    throw err;
   }
 }
 
@@ -291,9 +336,13 @@ async function getCoaches(query) {
     const items = Array.isArray(payload?.response) ? payload.response : [];
     return items.map(mapApiFootballCoach);
   } catch (err) {
-    setLastApiFootballError(err.message || "erro desconhecido");
-    console.warn("⚠️ Falha ao buscar coaches na API-Football; usando fallback local.", err.message);
-    return getCoachesLocal();
+    if (shouldFallbackToLocal(err)) {
+      setLastApiFootballError(err.message || "erro desconhecido");
+      console.warn("⚠️ Falha de rede ao buscar coaches na API-Football; usando fallback local.", err.message);
+      return getCoachesLocal();
+    }
+
+    throw err;
   }
 }
 
@@ -336,12 +385,7 @@ app.get("/api/players", async (req, res) => {
 });
 
 app.get("/api/teams", async (req, res) => {
-  const map = new Map();
-  for (const p of await getPlayers(req.query)) {
-    const name = String(p.time || "").trim();
-    if (name) map.set(name, (map.get(name) || 0) + 1);
-  }
-  const teams = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const teams = (await getTeams(req.query)).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   res.json({ count: teams.length, teams, source: resolveEffectiveDataMode() });
 });
 
