@@ -17,6 +17,7 @@ const API_FOOTBALL_DEFAULT_LEAGUE = process.env.API_FOOTBALL_DEFAULT_LEAGUE || "
 const API_FOOTBALL_DEFAULT_SEASON = process.env.API_FOOTBALL_DEFAULT_SEASON || String(new Date().getFullYear());
 
 let lastApiFootballError = "";
+const apiCache = new Map();
 
 function setLastApiFootballError(message = "") {
   lastApiFootballError = message;
@@ -128,7 +129,7 @@ function csvEscape(value) {
 }
 
 function topByMetric(players, metricKey, limit = 5) {
-  const withValue = players.map((p) => ({ player: p, metrics: mockMetrics(p) }));
+  const withValue = players.map((p) => ({ player: p, metrics: p.metrics || mockMetrics(p) }));
   withValue.sort((a, b) => (b.metrics[metricKey] || 0) - (a.metrics[metricKey] || 0));
   return withValue.slice(0, limit).map((x) => ({
     id: x.player.id,
@@ -221,6 +222,17 @@ async function apiFootballGet(endpoint, params = {}) {
   return payload;
 }
 
+async function apiFootballGetCached(endpoint, params = {}, ttlMs = 60000) {
+  const key = `${endpoint}?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`;
+  const now = Date.now();
+  const cached = apiCache.get(key);
+  if (cached && now - cached.time < ttlMs) return cached.payload;
+
+  const payload = await apiFootballGet(endpoint, params);
+  apiCache.set(key, { time: now, payload });
+  return payload;
+}
+
 function mapApiFootballPlayer(item) {
   const player = item?.player || {};
   const stats = Array.isArray(item?.statistics) ? item.statistics[0] : null;
@@ -235,6 +247,15 @@ function mapApiFootballPlayer(item) {
     team_id: stats?.team?.id || null,
     idade: player.age || null,
     pe: player.birth?.place || "",
+    metrics: {
+      minutos: stats?.games?.minutes || 0,
+      gols: stats?.goals?.total || 0,
+      assistencias: stats?.goals?.assists || 0,
+      chutes_no_alvo: stats?.shots?.on || 0,
+      passes_chave: stats?.passes?.key || 0,
+      desarmes: stats?.tackles?.total || 0,
+      defesas: stats?.goals?.saves || 0,
+    },
   };
 }
 
@@ -275,7 +296,7 @@ async function getTeams(query) {
   const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
 
   try {
-    const payload = await apiFootballGet("/teams", { league, season });
+    const payload = await apiFootballGetCached("/teams", { league, season }, 120000);
     setLastApiFootballError("");
     const items = Array.isArray(payload?.response) ? payload.response : [];
     return items
@@ -293,7 +314,7 @@ async function getTeams(query) {
 }
 
 async function getApiTeamsDirectory(league, season) {
-  const payload = await apiFootballGet("/teams", { league, season });
+  const payload = await apiFootballGetCached("/teams", { league, season }, 120000);
   const items = Array.isArray(payload?.response) ? payload.response : [];
   const byName = new Map();
 
@@ -333,7 +354,7 @@ async function getPlayers(query) {
       }
     }
 
-    const payload = await apiFootballGet("/players", params);
+    const payload = await apiFootballGetCached("/players", params, 60000);
 
     setLastApiFootballError("");
     const items = Array.isArray(payload?.response) ? payload.response : [];
@@ -354,46 +375,17 @@ async function getCoaches(query) {
     return getCoachesLocal();
   }
 
-  const league = parseOptionalPositiveInt(query.league, "league", Number(API_FOOTBALL_DEFAULT_LEAGUE));
-  const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
   const q = String(query.q || "").trim();
+  if (!q) {
+    setLastApiFootballError("");
+    return [];
+  }
 
   try {
-    if (q) {
-      const payload = await apiFootballGet("/coachs", { search: q });
-      setLastApiFootballError("");
-      const items = Array.isArray(payload?.response) ? payload.response : [];
-      return items.map(mapApiFootballCoach);
-    }
-
-    const payloadTeams = await apiFootballGet("/teams", { league, season });
-    const teams = Array.isArray(payloadTeams?.response) ? payloadTeams.response : [];
-
-    const coachMap = new Map();
-
-    for (const item of teams) {
-      const teamId = item?.team?.id;
-      if (!teamId) continue;
-
-      try {
-        const payloadCoach = await apiFootballGet("/coachs", { team: teamId });
-        const coaches = Array.isArray(payloadCoach?.response) ? payloadCoach.response : [];
-        for (const coach of coaches) {
-          const mapped = mapApiFootballCoach(coach);
-          if (mapped.id) coachMap.set(mapped.id, mapped);
-        }
-      } catch (teamErr) {
-        if (shouldFallbackToLocal(teamErr)) {
-          setLastApiFootballError(teamErr.message || "erro desconhecido");
-          console.warn(`⚠️ Falha de rede ao buscar coach do time ${teamId}; ignorando este time.`, teamErr.message);
-          continue;
-        }
-        throw teamErr;
-      }
-    }
-
+    const payload = await apiFootballGetCached("/coachs", { search: q }, 120000);
     setLastApiFootballError("");
-    return Array.from(coachMap.values());
+    const items = Array.isArray(payload?.response) ? payload.response : [];
+    return items.map(mapApiFootballCoach);
   } catch (err) {
     if (shouldFallbackToLocal(err)) {
       setLastApiFootballError(err.message || "erro desconhecido");
@@ -401,9 +393,7 @@ async function getCoaches(query) {
       return getCoachesLocal();
     }
 
-    setLastApiFootballError(err.message || "erro desconhecido");
-    console.warn("⚠️ Erro da API-Football ao buscar coaches; retornando lista vazia.", err.message);
-    return [];
+    throw err;
   }
 }
 
@@ -494,8 +484,8 @@ app.get("/api/players/:id", async (req, res) => {
   const players = await getPlayers(req.query);
   const player = players.find((p) => p.id === id);
   if (!player) return res.status(404).json({ error: "Player não encontrado" });
-  const metrics = mockMetrics(player);
-  const samePos = players.filter((p) => p.posicao === player.posicao).map((p) => mockMetrics(p));
+  const metrics = player.metrics || mockMetrics(player);
+  const samePos = players.filter((p) => p.posicao === player.posicao).map((p) => p.metrics || mockMetrics(p));
   const percentis = {
     minutos: percentile(metrics.minutos, samePos.map((m) => m.minutos)),
     gols: percentile(metrics.gols, samePos.map((m) => m.gols)),
@@ -512,13 +502,33 @@ app.get("/api/coaches", async (req, res) => {
   const q = normalize(req.query.q);
   const coaches = await getCoaches(req.query);
   const filtered = q ? coaches.filter((c) => normalize(c.nome).includes(q)) : coaches;
-  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" }, source: resolveEffectiveDataMode() });
+  res.json({ count: filtered.length, coaches: filtered, filters: { q: req.query.q || "" }, source: resolveEffectiveDataMode(), note: req.query.q ? undefined : "Informe um nome para buscar treinadores na API-Football" });
 });
 
 app.get("/api/coaches/:id", async (req, res) => {
   const id = parsePositiveInt(req.params.id, "ID do treinador");
-  const coach = (await getCoaches(req.query)).find((c) => c.id === id);
+
+  let coach = null;
+  if (resolveDataMode() === "api-football") {
+    try {
+      const payload = await apiFootballGetCached("/coachs", { id }, 120000);
+      const items = Array.isArray(payload?.response) ? payload.response : [];
+      coach = items.length ? mapApiFootballCoach(items[0]) : null;
+      setLastApiFootballError("");
+    } catch (err) {
+      if (shouldFallbackToLocal(err)) {
+        setLastApiFootballError(err.message || "erro desconhecido");
+        coach = getCoachesLocal().find((c) => c.id === id) || null;
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    coach = getCoachesLocal().find((c) => c.id === id) || null;
+  }
+
   if (!coach) return res.status(404).json({ error: "Treinador não encontrado" });
+
   const impact_history = coachImpactHistory(id);
   const last = impact_history[impact_history.length - 1];
   res.json({ coach, impact: { jogos: last.jogos, vitorias: last.vitorias, empates: last.empates, derrotas: last.derrotas, aproveitamento_pct: last.aproveitamento_pct }, impact_history, source: resolveEffectiveDataMode() });
