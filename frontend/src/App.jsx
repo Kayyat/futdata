@@ -411,6 +411,16 @@ export default function App() {
     return qs ? `?${qs}` : "";
   }, [fPosicao, fTime, q, fLeague, fSeason, fPage]);
 
+  const coachQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (coachQ.trim()) params.set("q", coachQ.trim());
+    if (fLeague) params.set("league", fLeague);
+    if (fSeason) params.set("season", fSeason);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }, [coachQ, fLeague, fSeason]);
+
+
   useEffect(() => {
     if (tab !== "players") return;
 
@@ -488,11 +498,10 @@ export default function App() {
   // Coaches
   useEffect(() => {
     if (tab !== "coaches") return;
-    const qs = coachQ.trim() ? `?q=${encodeURIComponent(coachQ.trim())}` : "";
-    apiGet(`/api/coaches${qs}`)
+    apiGet(`/api/coaches${coachQueryString}`)
       .then((data) => setCoaches(data.coaches || []))
       .catch(() => setError("Falha ao buscar /api/coaches"));
-  }, [tab, coachQ]);
+  }, [tab, coachQueryString]);
 
   useEffect(() => {
     if (tab !== "coaches") return;
@@ -501,15 +510,14 @@ export default function App() {
       return;
     }
     setCoachLoading(true);
-    apiGet(`/api/coaches/${coachSelectedId}`)
+    apiGet(`/api/coaches/${coachSelectedId}${coachQueryString}`)
       .then((data) => setCoachDetail(data))
       .catch(() => setError("Falha ao buscar detalhe do treinador"))
       .finally(() => setCoachLoading(false));
-  }, [tab, coachSelectedId]);
+  }, [tab, coachSelectedId, coachQueryString]);
 
   function downloadCoachesCsv() {
-    const qs = coachQ.trim() ? `?q=${encodeURIComponent(coachQ.trim())}` : "";
-    const url = `${API_BASE_URL}/api/coaches.csv${qs}`;
+    const url = `${API_BASE_URL}/api/coaches.csv${coachQueryString}`;
     window.open(url, "_blank");
   }
 

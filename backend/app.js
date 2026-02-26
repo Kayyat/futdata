@@ -232,6 +232,7 @@ function mapApiFootballPlayer(item) {
     nome: player.name || "",
     posicao: position || "",
     time: teamName || "",
+    team_id: stats?.team?.id || null,
     idade: player.age || null,
     pe: player.birth?.place || "",
   };
@@ -291,6 +292,21 @@ async function getTeams(query) {
   }
 }
 
+async function getApiTeamsDirectory(league, season) {
+  const payload = await apiFootballGet("/teams", { league, season });
+  const items = Array.isArray(payload?.response) ? payload.response : [];
+  const byName = new Map();
+
+  for (const item of items) {
+    const id = item?.team?.id;
+    const name = String(item?.team?.name || "").trim();
+    if (!id || !name) continue;
+    byName.set(normalize(name), { id, name });
+  }
+
+  return byName;
+}
+
 async function getPlayers(query) {
   if (resolveDataMode() !== "api-football") {
     return getPlayersLocal();
@@ -299,14 +315,25 @@ async function getPlayers(query) {
   const league = parseOptionalPositiveInt(query.league, "league", Number(API_FOOTBALL_DEFAULT_LEAGUE));
   const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
   const page = parseOptionalPositiveInt(query.page, "page", 1);
+  const wantedTeam = normalize(query.time);
 
   try {
-    const payload = await apiFootballGet("/players", {
+    const params = {
       league,
       season,
       search: query.q || undefined,
       page,
-    });
+    };
+
+    if (wantedTeam) {
+      const teamsByName = await getApiTeamsDirectory(league, season);
+      const team = teamsByName.get(wantedTeam);
+      if (team?.id) {
+        params.team = team.id;
+      }
+    }
+
+    const payload = await apiFootballGet("/players", params);
 
     setLastApiFootballError("");
     const items = Array.isArray(payload?.response) ? payload.response : [];
@@ -327,14 +354,46 @@ async function getCoaches(query) {
     return getCoachesLocal();
   }
 
+  const league = parseOptionalPositiveInt(query.league, "league", Number(API_FOOTBALL_DEFAULT_LEAGUE));
+  const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
+  const q = String(query.q || "").trim();
+
   try {
-    const payload = await apiFootballGet("/coachs", {
-      search: query.q || undefined,
-    });
+    if (q) {
+      const payload = await apiFootballGet("/coachs", { search: q });
+      setLastApiFootballError("");
+      const items = Array.isArray(payload?.response) ? payload.response : [];
+      return items.map(mapApiFootballCoach);
+    }
+
+    const payloadTeams = await apiFootballGet("/teams", { league, season });
+    const teams = Array.isArray(payloadTeams?.response) ? payloadTeams.response : [];
+
+    const coachMap = new Map();
+
+    for (const item of teams) {
+      const teamId = item?.team?.id;
+      if (!teamId) continue;
+
+      try {
+        const payloadCoach = await apiFootballGet("/coachs", { team: teamId });
+        const coaches = Array.isArray(payloadCoach?.response) ? payloadCoach.response : [];
+        for (const coach of coaches) {
+          const mapped = mapApiFootballCoach(coach);
+          if (mapped.id) coachMap.set(mapped.id, mapped);
+        }
+      } catch (teamErr) {
+        if (shouldFallbackToLocal(teamErr)) {
+          setLastApiFootballError(teamErr.message || "erro desconhecido");
+          console.warn(`⚠️ Falha de rede ao buscar coach do time ${teamId}; ignorando este time.`, teamErr.message);
+          continue;
+        }
+        throw teamErr;
+      }
+    }
 
     setLastApiFootballError("");
-    const items = Array.isArray(payload?.response) ? payload.response : [];
-    return items.map(mapApiFootballCoach);
+    return Array.from(coachMap.values());
   } catch (err) {
     if (shouldFallbackToLocal(err)) {
       setLastApiFootballError(err.message || "erro desconhecido");
@@ -342,7 +401,9 @@ async function getCoaches(query) {
       return getCoachesLocal();
     }
 
-    throw err;
+    setLastApiFootballError(err.message || "erro desconhecido");
+    console.warn("⚠️ Erro da API-Football ao buscar coaches; retornando lista vazia.", err.message);
+    return [];
   }
 }
 
