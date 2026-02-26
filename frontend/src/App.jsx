@@ -399,6 +399,18 @@ export default function App() {
     });
   }, [tab, selectedId, compareId, coachSelectedId]);
 
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (fPosicao) params.set("posicao", fPosicao);
+    if (fTime) params.set("time", fTime);
+    if (q.trim()) params.set("q", q.trim());
+    if (fLeague) params.set("league", fLeague);
+    if (fSeason) params.set("season", fSeason);
+    if (fPage) params.set("page", fPage);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }, [fPosicao, fTime, q, fLeague, fSeason, fPage]);
+
   useEffect(() => {
     if (tab !== "players") return;
 
@@ -426,18 +438,6 @@ export default function App() {
       .catch(() => setError("Falha ao buscar /api/rankings"))
       .finally(() => setRankLoading(false));
   }, [tab, fPosicao, fLeague, fSeason, fPage]);
-
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams();
-    if (fPosicao) params.set("posicao", fPosicao);
-    if (fTime) params.set("time", fTime);
-    if (q.trim()) params.set("q", q.trim());
-    if (fLeague) params.set("league", fLeague);
-    if (fSeason) params.set("season", fSeason);
-    if (fPage) params.set("page", fPage);
-    const qs = params.toString();
-    return qs ? `?${qs}` : "";
-  }, [fPosicao, fTime, q, fLeague, fSeason, fPage]);
 
   useEffect(() => {
     if (tab !== "players") return;
