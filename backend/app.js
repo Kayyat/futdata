@@ -16,6 +16,16 @@ const API_FOOTBALL_USE_LIVE = rawUseLive
 const API_FOOTBALL_DEFAULT_LEAGUE = process.env.API_FOOTBALL_DEFAULT_LEAGUE || "71";
 const API_FOOTBALL_DEFAULT_SEASON = process.env.API_FOOTBALL_DEFAULT_SEASON || String(new Date().getFullYear());
 
+let lastApiFootballError = "";
+
+function setLastApiFootballError(message = "") {
+  lastApiFootballError = message;
+}
+
+function getLastApiFootballError() {
+  return lastApiFootballError;
+}
+
 function parseOrigins(value) {
   if (!value) return [];
   return value
@@ -165,9 +175,16 @@ function resolveDataMode() {
   return API_FOOTBALL_USE_LIVE && Boolean(API_FOOTBALL_KEY) ? "api-football" : "local";
 }
 
+function resolveEffectiveDataMode() {
+  if (resolveDataMode() !== "api-football") return "local";
+  if (getLastApiFootballError()) return "local";
+  return "api-football";
+}
+
 function resolveDataModeReason() {
   if (!API_FOOTBALL_USE_LIVE) return "API_FOOTBALL_USE_LIVE=false";
   if (!API_FOOTBALL_KEY) return "API_FOOTBALL_KEY ausente";
+  if (getLastApiFootballError()) return `fallback local por erro de rede: ${getLastApiFootballError()}`;
   return "API-Football habilitada";
 }
 
@@ -234,15 +251,22 @@ async function getPlayers(query) {
   const season = parseOptionalPositiveInt(query.season, "season", Number(API_FOOTBALL_DEFAULT_SEASON));
   const page = parseOptionalPositiveInt(query.page, "page", 1);
 
-  const payload = await apiFootballGet("/players", {
-    league,
-    season,
-    search: query.q || undefined,
-    page,
-  });
+  try {
+    const payload = await apiFootballGet("/players", {
+      league,
+      season,
+      search: query.q || undefined,
+      page,
+    });
 
-  const items = Array.isArray(payload?.response) ? payload.response : [];
-  return items.map(mapApiFootballPlayer);
+    setLastApiFootballError("");
+    const items = Array.isArray(payload?.response) ? payload.response : [];
+    return items.map(mapApiFootballPlayer);
+  } catch (err) {
+    setLastApiFootballError(err.message || "erro desconhecido");
+    console.warn("⚠️ Falha ao buscar players na API-Football; usando fallback local.", err.message);
+    return getPlayersLocal();
+  }
 }
 
 async function getCoaches(query) {
@@ -250,12 +274,19 @@ async function getCoaches(query) {
     return getCoachesLocal();
   }
 
-  const payload = await apiFootballGet("/coachs", {
-    search: query.q || undefined,
-  });
+  try {
+    const payload = await apiFootballGet("/coachs", {
+      search: query.q || undefined,
+    });
 
-  const items = Array.isArray(payload?.response) ? payload.response : [];
-  return items.map(mapApiFootballCoach);
+    setLastApiFootballError("");
+    const items = Array.isArray(payload?.response) ? payload.response : [];
+    return items.map(mapApiFootballCoach);
+  } catch (err) {
+    setLastApiFootballError(err.message || "erro desconhecido");
+    console.warn("⚠️ Falha ao buscar coaches na API-Football; usando fallback local.", err.message);
+    return getCoachesLocal();
+  }
 }
 
 app.get("/health", (req, res) => {
@@ -266,7 +297,7 @@ app.get("/health", (req, res) => {
     dataset_players: "backend/data/players.json",
     dataset_coaches: "backend/data/coaches.json",
     cors_allowed: allowedOrigins,
-    data_mode: resolveDataMode(),
+    data_mode: resolveEffectiveDataMode(),
     api_football: {
       enabled: API_FOOTBALL_USE_LIVE,
       has_key: Boolean(API_FOOTBALL_KEY),
@@ -291,7 +322,7 @@ app.get("/api/players", async (req, res) => {
       season: req.query.season || API_FOOTBALL_DEFAULT_SEASON,
       page: req.query.page || "1",
     },
-    source: resolveDataMode(),
+    source: resolveEffectiveDataMode(),
     players: filtered,
   });
 });
@@ -331,7 +362,7 @@ app.get("/api/rankings", async (req, res) => {
       defesas: topByMetric(pool, "defesas", 5),
     },
     count_pool: pool.length,
-    source: resolveDataMode(),
+    source: resolveEffectiveDataMode(),
   });
 });
 
@@ -402,4 +433,4 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || "Erro interno" });
 });
 
-module.exports = { app, allowedOrigins, resolveDataMode };
+module.exports = { app, allowedOrigins, resolveDataMode: resolveEffectiveDataMode };

@@ -87,8 +87,9 @@ API_FOOTBALL_DEFAULT_SEASON=2024
 
 ### Como funciona
 
-- Com `API_FOOTBALL_USE_LIVE=true` e chave válida, o backend usa dados remotos.
+- Com `API_FOOTBALL_USE_LIVE=true` e chave válida, o backend tenta usar dados remotos.
 - Se desativado (ou sem chave), o backend mantém fallback para os JSONs locais.
+- Se houver erro de rede/timeout com a API externa, o backend faz fallback automático para dados locais e expõe o motivo em `api_football.mode_reason`.
 - O endpoint `GET /health` retorna `data_mode` (`api-football` ou `local`).
 
 ### Parâmetros úteis
