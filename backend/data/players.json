@@ -1,0 +1,9 @@
+[
+  { "id": 1, "nome": "Pedro", "posicao": "Atacante", "time": "Flamengo", "idade": 26, "pe": "Direito" },
+  { "id": 2, "nome": "Vegetti", "posicao": "Atacante", "time": "Vasco", "idade": 36, "pe": "Direito" },
+  { "id": 3, "nome": "Arrascaeta", "posicao": "Meia", "time": "Flamengo", "idade": 31, "pe": "Esquerdo" },
+  { "id": 4, "nome": "Thiago Silva", "posicao": "Zagueiro", "time": "Fluminense", "idade": 41, "pe": "Direito" },
+  { "id": 5, "nome": "Payet", "posicao": "Meia", "time": "Vasco", "idade": 38, "pe": "Direito" },
+  { "id": 6, "nome": "Fábio", "posicao": "Goleiro", "time": "Fluminense", "idade": 45, "pe": "Direito" },
+  { "id": 7, "nome": "Gerson", "posicao": "Meia", "time": "Flamengo", "idade": 28, "pe": "Esquerdo" }
+]

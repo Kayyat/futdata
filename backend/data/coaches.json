@@ -1,0 +1,5 @@
+[
+  { "id": 1, "nome": "Tite", "nacionalidade": "Brasil", "idade": 64, "ultimo_clube": "Flamengo", "perfil": "Organização defensiva, transições" },
+  { "id": 2, "nome": "Fernando Diniz", "nacionalidade": "Brasil", "idade": 51, "ultimo_clube": "Fluminense", "perfil": "Posse, construção curta, pressão" },
+  { "id": 3, "nome": "Renato Gaúcho", "nacionalidade": "Brasil", "idade": 62, "ultimo_clube": "Grêmio", "perfil": "Transição, gestão de elenco" }
+]
